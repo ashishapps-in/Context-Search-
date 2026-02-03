@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Context Search+ Settings</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 40px 20px;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 40px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 32px;
+      margin-bottom: 8px;
+    }
+
+    .header p {
+      opacity: 0.9;
+      font-size: 14px;
+    }
+
+    .content {
+      padding: 40px;
+    }
+
+    .section {
+      margin-bottom: 40px;
+    }
+
+    .section-title {
+      font-size: 20px;
+      font-weight: 700;
+      color: #667eea;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #f0f0f0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .section-description {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 20px;
+      line-height: 1.6;
+    }
+
+    .settings-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 15px;
+    }
+
+    .setting-item {
+      background: #f9fafb;
+      padding: 15px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      transition: all 0.2s ease;
+      border: 2px solid transparent;
+    }
+
+    .setting-item:hover {
+      background: #f3f4f6;
+      border-color: #e5e7eb;
+    }
+
+    .setting-item.disabled {
+      opacity: 0.5;
+      pointer-events: none;
+    }
+
+    .toggle {
+      position: relative;
+      width: 48px;
+      height: 26px;
+      flex-shrink: 0;
+    }
+
+    .toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: #ccc;
+      transition: 0.3s;
+      border-radius: 26px;
+    }
+
+    .toggle-slider:before {
+      position: absolute;
+      content: "";
+      height: 20px;
+      width: 20px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: 0.3s;
+      border-radius: 50%;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+    }
+
+    .toggle input:checked + .toggle-slider {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    }
+
+    .toggle input:checked + .toggle-slider:before {
+      transform: translateX(22px);
+    }
+
+    .setting-label {
+      flex: 1;
+    }
+
+    .setting-label .title {
+      font-weight: 600;
+      color: #333;
+      font-size: 14px;
+      margin-bottom: 4px;
+    }
+
+    .setting-label .description {
+      font-size: 12px;
+      color: #666;
+      line-height: 1.4;
+    }
+
+    .icon {
+      font-size: 20px;
+    }
+
+    .custom-search-section {
+      background: #f9fafb;
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+    }
+
+    .custom-search-list {
+      list-style: none;
+      margin-bottom: 20px;
+    }
+
+    .custom-search-item {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 15px;
+      border: 1px solid #e5e7eb;
+    }
+
+    .custom-search-item .info {
+      flex: 1;
+    }
+
+    .custom-search-item .name {
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 4px;
+    }
+
+    .custom-search-item .url {
+      font-size: 12px;
+      color: #666;
+      font-family: monospace;
+      word-break: break-all;
+    }
+
+    .delete-btn {
+      background: #ef4444;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      transition: all 0.2s ease;
+    }
+
+    .delete-btn:hover {
+      background: #dc2626;
+      transform: translateY(-1px);
+    }
+
+    .add-custom-form {
+      display: grid;
+      gap: 15px;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      border: 2px dashed #e5e7eb;
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+
+    .form-group label {
+      font-weight: 600;
+      color: #333;
+      font-size: 13px;
+    }
+
+    .form-group input {
+      padding: 10px 12px;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 14px;
+      transition: all 0.2s ease;
+    }
+
+    .form-group input:focus {
+      outline: none;
+      border-color: #667eea;
+    }
+
+    .form-group .hint {
+      font-size: 12px;
+      color: #666;
+    }
+
+    .btn {
+      padding: 12px 24px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      font-size: 14px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+    }
+
+    .btn-secondary {
+      background: #f3f4f6;
+      color: #333;
+    }
+
+    .btn-secondary:hover {
+      background: #e5e7eb;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      margin-top: 40px;
+      padding-top: 30px;
+      border-top: 2px solid #f0f0f0;
+    }
+
+    .save-notification {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      background: #10b981;
+      color: white;
+      padding: 15px 25px;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
+      font-weight: 600;
+      z-index: 10000;
+      opacity: 0;
+      transform: translateX(100px);
+      transition: all 0.3s ease;
+    }
+
+    .save-notification.show {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .notes-viewer {
+      background: #f9fafb;
+      padding: 20px;
+      border-radius: 12px;
+      margin-top: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+
+    .note-item {
+      background: white;
+      padding: 15px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      border-left: 4px solid #667eea;
+    }
+
+    .note-text {
+      color: #333;
+      margin-bottom: 8px;
+      line-height: 1.6;
+    }
+
+    .note-meta {
+      font-size: 11px;
+      color: #666;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .note-link {
+      color: #667eea;
+      text-decoration: none;
+      font-weight: 500;
+    }
+
+    .note-link:hover {
+      text-decoration: underline;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 40px;
+      color: #999;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>⚙️ Context Search+ Settings</h1>
+      <p>Customize your power-user experience</p>
+    </div>
+
+    <div class="content">
+      <!-- Display Mode -->
+      <div class="section">
+        <div class="section-title">
+          <span class="icon">🎨</span>
+          Display Mode
+        </div>
+        <div class="section-description">
+          Choose how Context Search+ appears when you select text
+        </div>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="useFloatingBubble" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">Floating Bubble</div>
+              <div class="description">Show smart bubble near selection</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="useContextMenu" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">Right-Click Menu</div>
+              <div class="description">Add to context menu</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Search Engines -->
+      <div class="section">
+        <div class="section-title">
+          <span class="icon">🔍</span>
+          Search Engines
+        </div>
+        <div class="section-description">
+          Enable or disable search engines that appear in your menu
+        </div>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableYouTube" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">🎥 YouTube</div>
+              <div class="description">Find tutorials & videos</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableReddit" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">💬 Reddit</div>
+              <div class="description">Check real reviews</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableGitHub" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">💻 GitHub</div>
+              <div class="description">Find code snippets</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableGoogle" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">🔍 Google</div>
+              <div class="description">Standard web search</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableDuckDuckGo" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">🦆 DuckDuckGo</div>
+              <div class="description">Privacy-focused search</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Utility Features -->
+      <div class="section">
+        <div class="section-title">
+          <span class="icon">🛠️</span>
+          Utility Features
+        </div>
+        <div class="section-description">
+          Smart tools that work on your selected text
+        </div>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableTranslate" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">🌐 Translation</div>
+              <div class="description">Instant inline translation</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableCleanCopy" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">📋 Clean Copy</div>
+              <div class="description">Copy as plain text</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableTTS" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">🔊 Text-to-Speech</div>
+              <div class="description">Read text aloud</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableDefine" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">📖 Dictionary</div>
+              <div class="description">Define words instantly</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableSaveNote" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">💾 Save to Notes</div>
+              <div class="description">Save quotes for later</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Context-Aware Features -->
+      <div class="section">
+        <div class="section-title">
+          <span class="icon">🧠</span>
+          Context-Aware Features
+        </div>
+        <div class="section-description">
+          Smart buttons that appear based on what you select
+        </div>
+        <div class="settings-grid">
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableMaps" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">📍 Address Detection</div>
+              <div class="description">Show Maps for addresses</div>
+            </div>
+          </div>
+          <div class="setting-item">
+            <label class="toggle">
+              <input type="checkbox" id="enableUnitConverter" checked>
+              <span class="toggle-slider"></span>
+            </label>
+            <div class="setting-label">
+              <div class="title">⚖️ Unit Converter</div>
+              <div class="description">Auto-convert measurements</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Custom Search Engines -->
+      <div class="section">
+        <div class="section-title">
+          <span class="icon">🔗</span>
+          Custom Search Engines
+        </div>
+        <div class="section-description">
+          Add your own search URLs for specialized databases or websites. Use %s where the selected text should go.
+        </div>
+        <div class="custom-search-section">
+          <ul class="custom-search-list" id="customSearchList">
+            <!-- Custom searches will be added here -->
+          </ul>
+          <div class="add-custom-form">
+            <div class="form-group">
+              <label>Name</label>
+              <input type="text" id="customName" placeholder="e.g., Wikipedia">
+            </div>
+            <div class="form-group">
+              <label>Icon (emoji)</label>
+              <input type="text" id="customIcon" placeholder="e.g., 📚" maxlength="2">
+            </div>
+            <div class="form-group">
+              <label>Search URL</label>
+              <input type="text" id="customUrl" placeholder="e.g., https://en.wikipedia.org/wiki/%s">
+              <span class="hint">Use %s where the selected text should appear</span>
+            </div>
+            <button class="btn btn-primary" id="addCustomBtn">➕ Add Custom Search</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Saved Notes -->
+      <div class="section">
+        <div class="section-title">
+          <span class="icon">📝</span>
+          Saved Notes
+        </div>
+        <div class="section-description">
+          View and manage your saved text snippets
+        </div>
+        <div class="notes-viewer" id="notesViewer">
+          <div class="empty-state">No notes saved yet</div>
+        </div>
+        <button class="btn btn-secondary" id="clearNotesBtn" style="margin-top: 15px;">🗑️ Clear All Notes</button>
+      </div>
+
+      <!-- Actions -->
+      <div class="actions">
+        <button class="btn btn-primary" id="saveBtn">💾 Save Settings</button>
+        <button class="btn btn-secondary" id="resetBtn">🔄 Reset to Defaults</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="save-notification" id="notification">✓ Settings saved!</div>
+
+  <script src="options.js"></script>
+</body>
+</html>
