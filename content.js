@@ -3,6 +3,11 @@
 
 let translationBubble = null;
 let settings = {};
+const MAX_BUTTONS = 10;
+const SELECTION_DELAY_MS = 180;
+const AUTO_CLOSE_MS = 7000;
+let bubbleAutoCloseTimer = null;
+let lastSelectionSignature = '';
 
 // Load settings
 chrome.runtime.sendMessage({ action: "getSettings" }, (response) => {
@@ -13,38 +18,85 @@ chrome.runtime.sendMessage({ action: "getSettings" }, (response) => {
 
 // Listen for text selection
 document.addEventListener('mouseup', handleTextSelection);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeBubble();
+});
+document.addEventListener('scroll', closeBubble, { passive: true });
 
 function handleTextSelection(event) {
-  if (!settings.useFloatingBubble) return;
+  if (!settings.useFloatingBubble || event.button !== 0) return;
+  if (isInEditableElement(event.target)) return;
 
   setTimeout(() => {
-    const selectedText = window.getSelection().toString().trim();
-    
-    // Remove existing bubble if any
-    if (translationBubble) {
-      translationBubble.remove();
-      translationBubble = null;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      closeBubble();
+      return;
     }
-    
-    if (selectedText.length > 0 && selectedText.length < 500) {
-      if (selectedText.length < 2) return;
-      
-      // Detect context
-      detectContext(selectedText).then(context => {
-        createSmartBubble(event.pageX, event.pageY, selectedText, context);
-      });
+
+    const selectedText = selection.toString().trim();
+    if (selectedText.length < 2 || selectedText.length > 500) {
+      closeBubble();
+      return;
     }
-  }, 10);
+
+    const selectionSignature = `${window.location.href}::${selectedText}`;
+    if (selectionSignature === lastSelectionSignature && translationBubble) {
+      return;
+    }
+    lastSelectionSignature = selectionSignature;
+
+    const anchor = getSelectionAnchor(selection, event);
+
+    // Detect context
+    detectContext(selectedText).then(context => {
+      createSmartBubble(anchor.x, anchor.y, selectedText, context);
+    });
+  }, SELECTION_DELAY_MS);
+}
+
+function isInEditableElement(target) {
+  if (!target) return false;
+  const node = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+  if (!node || typeof node.closest !== 'function') return false;
+  return Boolean(node.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"]'));
+}
+
+function getSelectionAnchor(selection, event) {
+  const range = selection.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+
+  const scrollX = window.scrollX || window.pageXOffset;
+  const scrollY = window.scrollY || window.pageYOffset;
+
+  if (rect && rect.width > 0 && rect.height > 0) {
+    return {
+      x: rect.left + scrollX + (rect.width / 2),
+      y: rect.top + scrollY
+    };
+  }
+
+  return {
+    x: event.pageX,
+    y: event.pageY
+  };
 }
 
 // Detect what type of content is selected
 async function detectContext(text) {
+  const trimmedText = text.trim();
   const context = {
     isAddress: false,
     isCode: false,
     hasUnit: false,
     unitConversion: null,
-    isSingleWord: text.split(/\s+/).length === 1
+    isSingleWord: trimmedText.split(/\s+/).length === 1,
+    isQuestion: /\?$/.test(trimmedText),
+    isEmail: /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedText),
+    isUrl: /^https?:\/\//i.test(trimmedText) || /^www\./i.test(trimmedText),
+    isLongText: trimmedText.length > 140,
+    hasCurrency: /(\$|€|£|¥|₹)\s?\d+/.test(trimmedText),
+    preferredSearch: 'google'
   };
 
   // Check for address
@@ -53,7 +105,7 @@ async function detectContext(text) {
     /[\w\s]+,\s*[A-Z]{2}\s*\d{5}/,
     /\d+\s+[\w\s]+,\s*[\w\s]+,\s*[A-Z]{2}/i
   ];
-  context.isAddress = addressPatterns.some(pattern => pattern.test(text));
+  context.isAddress = addressPatterns.some(pattern => pattern.test(trimmedText));
 
   // Check for code
   const codePatterns = [
@@ -62,18 +114,30 @@ async function detectContext(text) {
     /=>/,
     /^\s*<[a-z]+.*>.*<\/[a-z]+>\s*$/i
   ];
-  context.isCode = codePatterns.some(pattern => pattern.test(text)) && text.length > 10;
+  context.isCode = codePatterns.some(pattern => pattern.test(trimmedText)) && trimmedText.length > 10;
 
   // Check for units
   const unitRegex = /(\d+(?:\.\d+)?)\s*(kg|lbs|g|oz|km|miles|m|ft|cm|in|c|f)\b/i;
-  if (unitRegex.test(text)) {
+  if (unitRegex.test(trimmedText)) {
     context.hasUnit = true;
     // Get conversion
     const response = await chrome.runtime.sendMessage({ 
       action: "convertUnit", 
-      text: text 
+      text: trimmedText
     });
-    context.unitConversion = response.conversion;
+    context.unitConversion = response?.conversion || null;
+  }
+
+  if (context.isCode) {
+    context.preferredSearch = 'github';
+  } else if (context.isQuestion) {
+    context.preferredSearch = 'reddit';
+  } else if (context.hasCurrency || context.hasUnit) {
+    context.preferredSearch = 'google';
+  }
+
+  if (context.isUrl) {
+    context.isSingleWord = false;
   }
 
   return context;
@@ -85,126 +149,168 @@ function createSmartBubble(x, y, text, context) {
   
   let buttons = [];
 
+  const pushButton = (button, score = 0) => {
+    buttons.push({ ...button, score });
+  };
+
   // Context-aware buttons
   if (context.isAddress && settings.enableMaps) {
-    buttons.push({
+    pushButton({
       icon: '📍',
       action: 'maps',
       title: 'Open in Maps',
       class: 'csp-maps'
-    });
+    }, 120);
   }
 
   if (context.isCode && settings.enableGitHub) {
-    buttons.push({
+    pushButton({
       icon: '💻',
       action: 'github',
       title: 'Find on GitHub',
       class: 'csp-github'
-    });
+    }, 115);
   }
 
   if (context.hasUnit && context.unitConversion && settings.enableUnitConverter) {
-    buttons.push({
+    pushButton({
       icon: '⚖️',
       action: 'convert',
       title: `Convert: ${context.unitConversion}`,
       class: 'csp-convert',
       data: context.unitConversion
-    });
+    }, 110);
+  }
+
+  if (context.isUrl) {
+    pushButton({
+      icon: '🌍',
+      action: 'openUrl',
+      title: 'Open Link',
+      class: 'csp-open-url'
+    }, 108);
+  }
+
+  if (context.isEmail) {
+    pushButton({
+      icon: '✉️',
+      action: 'email',
+      title: 'Compose Email',
+      class: 'csp-email'
+    }, 108);
   }
 
   // Standard search buttons
   if (settings.enableYouTube) {
-    buttons.push({
+    pushButton({
       icon: '🎥',
       action: 'youtube',
       title: 'Search YouTube',
       class: 'csp-youtube'
-    });
+    }, context.isLongText ? 20 : 55);
   }
 
   if (settings.enableReddit) {
-    buttons.push({
+    pushButton({
       icon: '💬',
       action: 'reddit',
       title: 'Check Reddit',
       class: 'csp-reddit'
-    });
+    }, context.preferredSearch === 'reddit' ? 100 : 60);
   }
 
   if (!context.isCode && settings.enableGitHub && !buttons.some(b => b.action === 'github')) {
-    buttons.push({
+    pushButton({
       icon: '💻',
       action: 'github',
       title: 'Find on GitHub',
       class: 'csp-github'
-    });
+    }, context.preferredSearch === 'github' ? 100 : 45);
   }
 
   if (settings.enableGoogle) {
-    buttons.push({
+    pushButton({
       icon: '🔍',
       action: 'google',
       title: 'Search Google',
       class: 'csp-google'
-    });
+    }, context.preferredSearch === 'google' ? 98 : 70);
   }
 
   if (settings.enableDuckDuckGo) {
-    buttons.push({
+    pushButton({
       icon: '🦆',
       action: 'duckduckgo',
       title: 'DuckDuckGo (Privacy)',
       class: 'csp-duckduckgo'
-    });
+    }, 68);
   }
 
   // Utility buttons
   if (settings.enableTranslate) {
-    buttons.push({
+    pushButton({
       icon: '🌐',
       action: 'translate',
       title: 'Translate',
       class: 'csp-translate'
-    });
+    }, context.isLongText ? 65 : 40);
   }
 
   if (settings.enableCleanCopy) {
-    buttons.push({
+    pushButton({
       icon: '📋',
       action: 'cleanCopy',
       title: 'Clean Copy',
       class: 'csp-clean-copy'
-    });
+    }, 72);
   }
 
   if (settings.enableTTS) {
-    buttons.push({
+    pushButton({
       icon: '🔊',
       action: 'tts',
       title: 'Say It (TTS)',
       class: 'csp-tts'
-    });
+    }, context.isLongText ? 78 : 48);
   }
 
   if (context.isSingleWord && settings.enableDefine) {
-    buttons.push({
+    pushButton({
       icon: '📖',
       action: 'define',
       title: 'Define',
       class: 'csp-define'
-    });
+    }, 90);
   }
 
   if (settings.enableSaveNote) {
-    buttons.push({
+    pushButton({
       icon: '💾',
       action: 'saveNote',
       title: 'Save to Notes',
       class: 'csp-save-note'
-    });
+    }, 66);
   }
+
+  if (settings.customSearches && settings.customSearches.length > 0) {
+    settings.customSearches
+      .map((custom, index) => ({ custom, index }))
+      .slice(0, 3)
+      .forEach(({ custom, index }) => {
+        if (!custom?.url || !custom?.name) return;
+        pushButton({
+          icon: custom.icon || '🔗',
+          action: 'customSearch',
+          title: custom.name,
+          class: 'csp-custom-search',
+          data: String(index)
+        }, 50);
+      });
+  }
+
+  buttons = buttons
+    .sort((a, b) => b.score - a.score)
+    .slice(0, MAX_BUTTONS);
 
   // Build button HTML
   let buttonsHTML = buttons.map(btn => `
@@ -218,14 +324,30 @@ function createSmartBubble(x, y, text, context) {
 
   bubble.innerHTML = `<div class="csp-bubble-content">${buttonsHTML}</div>`;
   
-  // Position the bubble
+  // Position the bubble (centered on selection, clamped to viewport)
   bubble.style.position = 'absolute';
-  bubble.style.left = `${x}px`;
-  bubble.style.top = `${y - 60}px`;
   bubble.style.zIndex = '999999';
-  
+
   document.body.appendChild(bubble);
+
+  const bubbleRect = bubble.getBoundingClientRect();
+  const left = Math.max(
+    window.scrollX + 12,
+    Math.min(
+      x - (bubbleRect.width / 2),
+      window.scrollX + window.innerWidth - bubbleRect.width - 12
+    )
+  );
+  const top = Math.max(
+    window.scrollY + 12,
+    y - bubbleRect.height - 14
+  );
+
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${top}px`;
+
   translationBubble = bubble;
+  resetBubbleAutoClose();
   
   // Add click handlers
   const btnElements = bubble.querySelectorAll('.csp-btn');
@@ -243,6 +365,13 @@ function createSmartBubble(x, y, text, context) {
   setTimeout(() => {
     document.addEventListener('click', removeBubbleOnClick, { once: true });
   }, 100);
+}
+
+function resetBubbleAutoClose() {
+  clearTimeout(bubbleAutoCloseTimer);
+  bubbleAutoCloseTimer = setTimeout(() => {
+    closeBubble();
+  }, AUTO_CLOSE_MS);
 }
 
 function removeBubbleOnClick(event) {
@@ -284,6 +413,16 @@ function handleAction(action, text, data) {
       chrome.runtime.sendMessage({ action: 'openMaps', text: text });
       closeBubble();
       break;
+    case 'openUrl': {
+      const normalizedUrl = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+      window.open(normalizedUrl, '_blank');
+      closeBubble();
+      break;
+    }
+    case 'email':
+      window.open(`mailto:${text}`, '_blank');
+      closeBubble();
+      break;
     case 'translate':
       showTranslation(text);
       break;
@@ -303,10 +442,20 @@ function handleAction(action, text, data) {
     case 'convert':
       showConversion(data);
       break;
+    case 'customSearch': {
+      const custom = settings.customSearches?.[Number(data)];
+      if (custom?.url) {
+        const encoded = encodeURIComponent(text);
+        window.open(custom.url.replace('%s', encoded), '_blank');
+      }
+      closeBubble();
+      break;
+    }
   }
 }
 
 function closeBubble() {
+  clearTimeout(bubbleAutoCloseTimer);
   if (translationBubble) {
     translationBubble.remove();
     translationBubble = null;
@@ -341,8 +490,13 @@ function showTranslation(text) {
 }
 
 function copyCleanText(text) {
-  // Remove extra whitespace and formatting
-  const cleanText = text.replace(/\s+/g, ' ').trim();
+  // Remove extra whitespace, "read more" artifacts, and noisy ad labels.
+  const cleanText = text
+    .replace(/\s*read more\.?\s*$/i, '')
+    .replace(/\s*show more\.?\s*$/i, '')
+    .replace(/\b(advertisement|sponsored)\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   
   navigator.clipboard.writeText(cleanText).then(() => {
     showNotification('✓ Copied clean text!');
