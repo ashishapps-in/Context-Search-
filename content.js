@@ -3,11 +3,7 @@
 
 let translationBubble = null;
 let settings = {};
-const MAX_BUTTONS = 10;
-const SELECTION_DELAY_MS = 180;
-const AUTO_CLOSE_MS = 7000;
-let bubbleAutoCloseTimer = null;
-let lastSelectionSignature = '';
+const MAX_BUTTONS = 12;
 
 // Load settings
 chrome.runtime.sendMessage({ action: "getSettings" }, (response) => {
