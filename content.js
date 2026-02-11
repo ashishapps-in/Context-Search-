@@ -14,28 +14,68 @@ chrome.runtime.sendMessage({ action: "getSettings" }, (response) => {
 
 // Listen for text selection
 document.addEventListener('mouseup', handleTextSelection);
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') closeBubble();
+});
+document.addEventListener('scroll', closeBubble, { passive: true });
 
 function handleTextSelection(event) {
-  if (!settings.useFloatingBubble) return;
+  if (!settings.useFloatingBubble || event.button !== 0) return;
+  if (isInEditableElement(event.target)) return;
 
   setTimeout(() => {
-    const selectedText = window.getSelection().toString().trim();
-    
-    // Remove existing bubble if any
-    if (translationBubble) {
-      translationBubble.remove();
-      translationBubble = null;
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || selection.rangeCount === 0) {
+      closeBubble();
+      return;
     }
-    
-    if (selectedText.length > 0 && selectedText.length < 500) {
-      if (selectedText.length < 2) return;
-      
-      // Detect context
-      detectContext(selectedText).then(context => {
-        createSmartBubble(event.pageX, event.pageY, selectedText, context);
-      });
+
+    const selectedText = selection.toString().trim();
+    if (selectedText.length < 2 || selectedText.length > 500) {
+      closeBubble();
+      return;
     }
-  }, 10);
+
+    const selectionSignature = `${window.location.href}::${selectedText}`;
+    if (selectionSignature === lastSelectionSignature && translationBubble) {
+      return;
+    }
+    lastSelectionSignature = selectionSignature;
+
+    const anchor = getSelectionAnchor(selection, event);
+
+    // Detect context
+    detectContext(selectedText).then(context => {
+      createSmartBubble(anchor.x, anchor.y, selectedText, context);
+    });
+  }, SELECTION_DELAY_MS);
+}
+
+function isInEditableElement(target) {
+  if (!target) return false;
+  const node = target.nodeType === Node.TEXT_NODE ? target.parentElement : target;
+  if (!node || typeof node.closest !== 'function') return false;
+  return Boolean(node.closest('input, textarea, select, [contenteditable=""], [contenteditable="true"], [role="textbox"]'));
+}
+
+function getSelectionAnchor(selection, event) {
+  const range = selection.getRangeAt(0);
+  const rect = range.getBoundingClientRect();
+
+  const scrollX = window.scrollX || window.pageXOffset;
+  const scrollY = window.scrollY || window.pageYOffset;
+
+  if (rect && rect.width > 0 && rect.height > 0) {
+    return {
+      x: rect.left + scrollX + (rect.width / 2),
+      y: rect.top + scrollY
+    };
+  }
+
+  return {
+    x: event.pageX,
+    y: event.pageY
+  };
 }
 
 // Detect what type of content is selected
@@ -280,14 +320,30 @@ function createSmartBubble(x, y, text, context) {
 
   bubble.innerHTML = `<div class="csp-bubble-content">${buttonsHTML}</div>`;
   
-  // Position the bubble
+  // Position the bubble (centered on selection, clamped to viewport)
   bubble.style.position = 'absolute';
-  bubble.style.left = `${x}px`;
-  bubble.style.top = `${y - 60}px`;
   bubble.style.zIndex = '999999';
-  
+
   document.body.appendChild(bubble);
+
+  const bubbleRect = bubble.getBoundingClientRect();
+  const left = Math.max(
+    window.scrollX + 12,
+    Math.min(
+      x - (bubbleRect.width / 2),
+      window.scrollX + window.innerWidth - bubbleRect.width - 12
+    )
+  );
+  const top = Math.max(
+    window.scrollY + 12,
+    y - bubbleRect.height - 14
+  );
+
+  bubble.style.left = `${left}px`;
+  bubble.style.top = `${top}px`;
+
   translationBubble = bubble;
+  resetBubbleAutoClose();
   
   // Add click handlers
   const btnElements = bubble.querySelectorAll('.csp-btn');
@@ -305,6 +361,13 @@ function createSmartBubble(x, y, text, context) {
   setTimeout(() => {
     document.addEventListener('click', removeBubbleOnClick, { once: true });
   }, 100);
+}
+
+function resetBubbleAutoClose() {
+  clearTimeout(bubbleAutoCloseTimer);
+  bubbleAutoCloseTimer = setTimeout(() => {
+    closeBubble();
+  }, AUTO_CLOSE_MS);
 }
 
 function removeBubbleOnClick(event) {
@@ -388,6 +451,7 @@ function handleAction(action, text, data) {
 }
 
 function closeBubble() {
+  clearTimeout(bubbleAutoCloseTimer);
   if (translationBubble) {
     translationBubble.remove();
     translationBubble = null;
